@@ -42,7 +42,7 @@ Bittiğinde ekrandaki adresi tarayıcıda açın, kurulum anahtarıyla ilk yöne
 | [Yedekleme](#yedekleme) | Elle ve otomatik yedek, S3/R2/SFTP |
 | [Güncelleme](#güncelleme) | Tek komutla yeni sürüm |
 | [Günlük kullanım](#günlük-kullanım) | `envanter.sh` komutları |
-| [İnternetsiz kurulum](#internetsiz-kurulum) | Paketi elle götürme |
+| [İnternetsiz kurulum](#i̇nternetsiz-kurulum) | Paketi elle götürme |
 | [Sunucu güvenliği](#sunucu-güvenliği-ubuntu-2404-lts) | 11 adımlık sertleştirme rehberi |
 | [Bilinmesi gerekenler](#bilinmesi-gerekenler) | Saat, e-posta, `.env` |
 | [Sorun giderme](#sorun-giderme) | Sık görülen sorunlar |
@@ -63,7 +63,7 @@ Bittiğinde ekrandaki adresi tarayıcıda açın, kurulum anahtarıyla ilk yöne
 ## Gerekenler
 
 - Ubuntu 24.04 LTS sunucu (root veya `sudo` yetkisi)
-- İlk kurulum sırasında internet (paket ve Docker indirilir). İnternetsiz sunucu için bkz. [İnternetsiz kurulum](#internetsiz-kurulum)
+- İlk kurulum sırasında internet (paket ve Docker indirilir). İnternetsiz sunucu için bkz. [İnternetsiz kurulum](#i̇nternetsiz-kurulum)
 - Boş bir port (örnekte 8180)
 - Yaklaşık 2 GB boş disk
 
