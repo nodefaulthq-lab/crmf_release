@@ -1,4 +1,4 @@
-# Envanter Takip Sistemi: Sunucu Kurulumu
+# Forte ERP: Sunucu Kurulumu
 
 Bu depo yalnızca kurulum paketlerini (**Releases**) barındırır. Uygulama Docker ile tek komutla kurulur ve yerel ağda çalışır: veritabanı (MariaDB), uygulama ve HTTPS sağlayan ters vekil (Caddy) birlikte ayağa kalkar.
 
@@ -39,6 +39,7 @@ Hazır. Adres:  https://192.168.1.20:8180
 | `--host "ip, ad"` | Sertifikanın geçerli olacağı adresler (IP ve alan adları, virgülle) | sunucunun IP'leri ve adı |
 | `--name ad` | Kurulum adı (klasör `/opt/envanter/<ad>`); canlı ve test yan yana için | `canli` |
 | `--like ad` | Şifreleme anahtarını başka bir kurulumdan al (test için) | yok |
+| `--bind IP` | Yalnızca bu IP üzerinden dinle (örn. sunucunun yerel ağ IP'si) | tüm arayüzler |
 | `--backup-dir /yol` | Yedek klasörü (örneğin bağlı bir ağ paylaşımı) | kurulum klasöründeki `backups` |
 | `--version v1.5.0` | Belirli bir sürüm | en yeni |
 
@@ -128,6 +129,199 @@ Kurulum klasöründe (`cd /opt/envanter/canli`):
    ```
 
 Sunucuda Docker kurulu olmalıdır. Docker'ı da internetsiz kurmak gerekiyorsa paket, Docker `.deb` dosyalarıyla ayrıca hazırlanır (geliştiriciye danışın).
+
+## Sunucu güvenliği (Ubuntu 24.04 LTS)
+
+Uygulama kapsayıcıları zaten sertleştirilmiştir (yetkileri kısıtlı, uygulama dosya sistemi salt okunur, günlükler sınırlı). Aşağıdaki adımlar sunucunun kendisi içindir. Sırayla uygulayın; SSH ile ilgili adımlarda **mevcut oturumu kapatmadan** ikinci bir oturumdan giriş denemesi yapın.
+
+### 1. Güncellemeler ve otomatik güvenlik yamaları
+
+```bash
+sudo apt update && sudo apt full-upgrade -y
+sudo apt install -y unattended-upgrades
+sudo dpkg-reconfigure -plow unattended-upgrades
+```
+
+Güvenlik yamaları kendiliğinden uygulanır. Çekirdek güncellemesi sonrası yeniden başlatma gerekir; gece otomatik yeniden başlatmak için `/etc/apt/apt.conf.d/50unattended-upgrades` dosyasında şunları açın:
+
+```
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:00";
+```
+
+Uygulama `restart: unless-stopped` ile yeniden açılışta kendiliğinden başlar.
+
+### 2. Yönetici kullanıcı ve SSH
+
+Root ile doğrudan giriş yerine kişisel bir yönetici kullanıcı ve anahtarlı giriş kullanın:
+
+```bash
+sudo adduser yonetici && sudo usermod -aG sudo yonetici
+```
+
+Kendi bilgisayarınızdan anahtarı gönderin:
+
+```bash
+ssh-copy-id yonetici@<sunucu-ip>
+```
+
+Anahtarla girişi doğruladıktan sonra parola ile girişi ve root girişini kapatın:
+
+```bash
+sudo tee /etc/ssh/sshd_config.d/99-sertlestirme.conf >/dev/null <<'CONF'
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+AllowUsers yonetici
+CONF
+sudo sshd -t && sudo systemctl reload ssh
+```
+
+Ayrı bir terminalden `ssh yonetici@<sunucu-ip>` ile girişi doğrulayın, sonra eski oturumu kapatın.
+
+### 3. Güvenlik duvarı (ufw)
+
+Önce SSH'ı, sonra uygulama portlarını yalnızca yerel ağınıza açın (örnekte ağ `192.168.1.0/24`):
+
+```bash
+sudo apt install -y ufw
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow from 192.168.1.0/24 to any port 22 proto tcp
+sudo ufw allow from 192.168.1.0/24 to any port 8180 proto tcp
+sudo ufw allow from 192.168.1.0/24 to any port 8181 proto tcp
+sudo ufw enable
+sudo ufw status verbose
+```
+
+**Önemli: Docker, yayınladığı portları `ufw` kurallarını atlayarak açar.** `ufw` tek başına yeterli değildir; aşağıdaki iki önlemden en az birini uygulayın.
+
+**a) Uygulamayı yalnızca sunucunun yerel IP'sine bağlayın** (kolay yol). Kurulumda `--bind 192.168.1.20` verin ya da kurulu sistemde `/opt/envanter/canli/.env` dosyasına `BIND_ADDR=192.168.1.20` satırı ekleyip uygulayın:
+
+```bash
+cd /opt/envanter/canli && ./envanter.sh start
+```
+
+**b) `DOCKER-USER` zincirine yerel ağ dışını engelleyen kural ekleyin** (örnekte arayüz `eth0`, ağ `192.168.1.0/24`, port 8180):
+
+```bash
+sudo apt install -y iptables-persistent
+sudo iptables -I DOCKER-USER -i eth0 ! -s 192.168.1.0/24 -p tcp -m conntrack --ctorigdstport 8180 --ctdir ORIGINAL -j DROP
+sudo netfilter-persistent save
+```
+
+Her yayınlanan port (8181 vb.) için kuralı tekrarlayın. Arayüz adını `ip -br a` ile öğrenin.
+
+### 4. Kaba kuvvet koruması (fail2ban)
+
+```bash
+sudo apt install -y fail2ban
+sudo tee /etc/fail2ban/jail.d/sshd.local >/dev/null <<'CONF'
+[sshd]
+enabled = true
+maxretry = 4
+findtime = 10m
+bantime = 1h
+CONF
+sudo systemctl enable --now fail2ban
+sudo fail2ban-client status sshd
+```
+
+Uygulamanın kendisi de giriş denemelerini sınırlar ve denetim kaydı tutar.
+
+### 5. Saat eşitleme
+
+İki adımlı doğrulama ve oturum süreleri doğru saate bağlıdır:
+
+```bash
+sudo apt install -y chrony
+sudo systemctl enable --now chrony
+chronyc tracking
+```
+
+İnternetsiz ağda `/etc/chrony/chrony.conf` içine yerel bir NTP sunucusu (`server 192.168.1.1 iburst`) ekleyin.
+
+### 6. Dosya izinleri ve veri koruma
+
+```bash
+sudo chmod 700 /opt/envanter
+sudo chmod 600 /opt/envanter/*/.env
+sudo chmod 750 /opt/envanter/*/backups
+```
+
+- `.env` dosyasında veritabanı parolaları ve uygulama anahtarı vardır; yedeğini güvenli bir yerde (şifreli) tutun, kimseyle paylaşmayın.
+- **Yedek dosyaları tüm verinizi içerir.** Başka makineye kopyalarken şifreli kanal (SFTP, S3 TLS) kullanın; çıkarılabilir diske koyuyorsanız diski şifreleyin.
+- Sunucu diskini kurulum sırasında **LUKS** ile şifrelemek (Ubuntu kurulumunda "Disk şifreleme") sunucunun çalınması durumunda veriyi korur.
+- Kök sertifikanın özel anahtarı `caddy_data` Docker biriminde durur; sunucuya yetkisiz erişim vermeyin. Sertifika otoritesini yenilemek gerekirse kurulumu silmeden `docker volume rm envanter-canli_caddy_data` ile birimi silip uygulamayı yeniden başlatın; yeni otorite üretilir ve cihazlara yeni kök sertifika kurulur.
+
+### 7. Docker
+
+- Kullanıcıları `docker` grubuna eklemeyin; `docker` grubu pratikte root yetkisidir. Yönetimi `sudo` ile yapın.
+- `/etc/docker/daemon.json` dosyasına şunu yazıp `sudo systemctl restart docker` çalıştırın (Docker yeniden başlayınca kapsayıcılar kesintisiz kalır ve yeni kapsayıcılar ek yetki alamaz):
+
+  ```json
+  { "live-restore": true, "no-new-privileges": true }
+  ```
+
+- Gereksiz imajları temizleyin: `docker image prune -f` (çalışan kurulumlara dokunmaz).
+
+### 8. Sistem ve çekirdek ayarları
+
+```bash
+sudo tee /etc/sysctl.d/99-sertlestirme.conf >/dev/null <<'CONF'
+net.ipv4.tcp_syncookies = 1
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.conf.default.rp_filter = 1
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv6.conf.all.accept_redirects = 0
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+CONF
+sudo sysctl --system
+```
+
+Kullanılmayan servisleri kapatın: `systemctl list-unit-files --state=enabled` ile bakın, gerekmeyenleri `sudo systemctl disable --now <servis>` ile durdurun. Sunucuda yalnızca SSH ve Docker dinlemelidir.
+
+### 9. Kayıtlar ve izleme
+
+```bash
+sudo mkdir -p /var/log/journal && sudo systemctl restart systemd-journald
+sudo apt install -y auditd
+```
+
+- Kalıcı `journald` kayıtları yeniden başlatmadan sonra da incelenebilir.
+- Uygulama kayıtları: `cd /opt/envanter/canli && ./envanter.sh logs app`. Uygulamadaki denetim kaydı (kim, ne zaman, ne yaptı) veritabanında tutulur.
+- Disk dolmasını izleyin (`df -h`); yedek klasörü büyüyebilir. Docker günlükleri 10 MB x 3 dosya ile sınırlıdır.
+
+### 10. Uygulama içi güvenlik
+
+- İlk yöneticiden sonra tüm yöneticiler için **iki adımlı doğrulamayı** açın (Hesabım).
+- Yalnızca izleyecek kullanıcılara **salt okunur** rol verin; kullanıcıları görevlerine göre sınırlı firmalara bağlayın.
+- İlk yönetici oluşturulduktan sonra kurulum anahtarı (`SETUP_TOKEN`) işlevsizdir; değeri paylaşılmışsa bile kötüye kullanılamaz.
+- Ayarlar > Yedekler'de **otomatik yedeği** açın ve kopyayı sunucu dışında bir yere (SFTP/S3) gönderin. Geri yüklemeyi düzenli aralıklarla **test ortamında deneyin**.
+
+### 11. Denetim listesi
+
+Kurulumdan sonra kontrol edin:
+
+```bash
+sudo ss -tlnp
+sudo ufw status verbose
+sudo sshd -T | grep -E "permitrootlogin|passwordauthentication"
+sudo fail2ban-client status sshd
+timedatectl | grep -E "synchronized|NTP"
+sudo docker ps --format '{{.Names}} {{.Ports}}'
+```
+
+- `ss -tlnp` çıktısında yalnızca SSH ve uygulama portları (`docker-proxy`) görünmelidir.
+- Başka bir bilgisayardan `nmap -p 1-10000 <sunucu-ip>` ile yalnızca beklenen portların açık olduğunu doğrulayın.
+- İsteğe bağlı kapsamlı tarama: `sudo apt install -y lynis && sudo lynis audit system`. Çıktıdaki önerileri değerlendirin.
 
 ## Bilinmesi gerekenler
 
