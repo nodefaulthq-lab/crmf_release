@@ -1,6 +1,64 @@
-# Forte ERP: Sunucu Kurulumu
+<div align="center">
 
-Bu depo yalnızca kurulum paketlerini (**Releases**) barındırır. Uygulama Docker ile tek komutla kurulur ve yerel ağda çalışır: veritabanı (MariaDB), uygulama ve HTTPS sağlayan ters vekil (Caddy) birlikte ayağa kalkar.
+<img src="logo.svg" width="88" alt="Forte ERP" />
+
+# Forte ERP
+
+**Kurulum paketleri ve sunucu rehberi**
+
+Firma bazlı envanter, stok, satış ve proje takibi. Tek komutla Ubuntu sunucunuza kurulur, yerel ağınızda çalışır.
+
+![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04_LTS-E95420?logo=ubuntu&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)
+![MariaDB](https://img.shields.io/badge/MariaDB-11.8-003545?logo=mariadb&logoColor=white)
+![HTTPS](https://img.shields.io/badge/HTTPS-Caddy-1F88C0?logo=caddy&logoColor=white)
+
+</div>
+
+---
+
+## Hızlı başlangıç
+
+Sunucuda tek komut yeterlidir:
+
+```bash
+curl -fsSL https://github.com/nodefaulthq-lab/crmf_release/releases/latest/download/get.sh | sudo bash -s -- --port 8180
+```
+
+Bittiğinde ekrandaki adresi tarayıcıda açın, kurulum anahtarıyla ilk yöneticiyi oluşturun. Başka hiçbir şey kurmanız gerekmez.
+
+> [!NOTE]
+> Bu depo yalnızca kurulum paketlerini (**Releases**) barındırır. Kurulum, güncelleme, yedekleme ve sunucu güvenliği adımları aşağıdadır.
+
+## İçindekiler
+
+| Bölüm | İçerik |
+|---|---|
+| [Gerekenler](#gerekenler) | Sunucu ve ağ ön koşulları |
+| [Tek komutla kurulum](#tek-komutla-kurulum) | Komutun yaptıkları ve seçenekler |
+| [İlk giriş](#i̇lk-giriş) | Yönetici hesabı oluşturma |
+| [Sertifika uyarısı](#sertifika-uyarısı-bir-kez-her-cihazda) | HTTPS güveni, cihaza kurulum |
+| [Canlı ve test yan yana](#canlı-ve-test-yan-yana) | İki ortam, yedekle veri aktarma |
+| [Yedekleme](#yedekleme) | Elle ve otomatik yedek, S3/R2/SFTP |
+| [Güncelleme](#güncelleme) | Tek komutla yeni sürüm |
+| [Günlük kullanım](#günlük-kullanım) | `envanter.sh` komutları |
+| [İnternetsiz kurulum](#internetsiz-kurulum) | Paketi elle götürme |
+| [Sunucu güvenliği](#sunucu-güvenliği-ubuntu-2404-lts) | 11 adımlık sertleştirme rehberi |
+| [Bilinmesi gerekenler](#bilinmesi-gerekenler) | Saat, e-posta, `.env` |
+| [Sorun giderme](#sorun-giderme) | Sık görülen sorunlar |
+
+## Neler içerir?
+
+| | |
+|---|---|
+| 🏢 **Firmalar ve envanter** | Donanım ve yazılım kayıtları, garanti ve lisans takibi, Excel içe/dışa aktarma |
+| 📦 **Depo stok** | İrsaliyeli giriş, raf yeri, firmaya çıkış, sayım düzeltmesi |
+| 💰 **Satış ve projeler** | Teklif, sipariş, tahsilat, tedarik, proje aşamaları |
+| 🔔 **Alarmlar ve takvim** | Süre, stok ve vade alarmları; zil, e-posta, anlık bildirim |
+| 💾 **Yedekler** | Uygulamadan indir/yükle/geri yükle, otomatik yedek (yerel, S3/R2, SFTP) |
+| 🔐 **Güvenlik** | 2FA, şifreli saklama, rol bazlı erişim, denetim kaydı, sertleştirilmiş kapsayıcılar |
+
+---
 
 ## Gerekenler
 
@@ -128,7 +186,10 @@ Kurulum klasöründe (`cd /opt/envanter/canli`):
    cd /opt/envanter/canli && sudo ./envanter.sh install --port 8180
    ```
 
-Sunucuda Docker kurulu olmalıdır. Docker'ı da internetsiz kurmak gerekiyorsa paket, Docker `.deb` dosyalarıyla ayrıca hazırlanır (geliştiriciye danışın).
+> [!IMPORTANT]
+> Sunucuda Docker kurulu olmalıdır.
+
+Docker'ı da internetsiz kurmak gerekiyorsa paket, Docker `.deb` dosyalarıyla ayrıca hazırlanır (geliştiriciye danışın).
 
 ## Sunucu güvenliği (Ubuntu 24.04 LTS)
 
@@ -198,7 +259,8 @@ sudo ufw enable
 sudo ufw status verbose
 ```
 
-**Önemli: Docker, yayınladığı portları `ufw` kurallarını atlayarak açar.** `ufw` tek başına yeterli değildir; aşağıdaki iki önlemden en az birini uygulayın.
+> [!CAUTION]
+> Docker, yayınladığı portları `ufw` kurallarını atlayarak açar. `ufw` tek başına yeterli değildir; aşağıdaki iki önlemden en az birini uygulayın.
 
 **a) Uygulamayı yalnızca sunucunun yerel IP'sine bağlayın** (kolay yol). Kurulumda `--bind 192.168.1.20` verin ya da kurulu sistemde `/opt/envanter/canli/.env` dosyasına `BIND_ADDR=192.168.1.20` satırı ekleyip uygulayın:
 
@@ -325,11 +387,13 @@ sudo docker ps --format '{{.Names}} {{.Ports}}'
 
 ## Bilinmesi gerekenler
 
+> [!WARNING]
+> **`.env` dosyasını yedekleyin ve paylaşmayın.** İçindeki `APP_SECRET` değişirse kayıtlı e-posta parolaları ve 2FA anahtarları okunamaz.
+
 - **Saat doğru olmalıdır:** iki adımlı doğrulama kodları saate bağlıdır. İnternet yoksa saati elle veya yerel NTP ile eşitleyin; kurulum, saat eşitlenmiyorsa uyarır.
 - **Web Push bildirimleri** internet gerektirir; internetsiz ağda çalışmaz. Uygulama içi bildirimler ve e-posta alarmları çalışır.
 - **E-posta:** kurumun yerel SMTP sunucusu kullanılabilir. Ayarlar sayfasından girilir.
 - **Güvenlik duvarı:** seçtiğiniz portu açın: `sudo ufw allow 8180/tcp`.
-- **`.env` dosyasını yedekleyin ve paylaşmayın.** İçindeki `APP_SECRET` değişirse kayıtlı e-posta parolaları ve 2FA anahtarları okunamaz.
 - Port veya adresi değiştirmek için `sudo ./envanter.sh install --port 9443 --host "..."` komutunu kurulum klasöründe tekrar çalıştırın; veriler korunur.
 
 ## Sorun giderme
